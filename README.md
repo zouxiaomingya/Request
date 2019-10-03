@@ -278,3 +278,156 @@ const request = (initOptions = {}) => {
 
 
 
+```javaScript
+class Core {
+  constructor(initOptions) {
+    this.onion = new Onion([]);
+    this.fetchIndex = 0; // 【即将废弃】请求中间件位置
+    this.mapCache = new MapCache(initOptions);
+  }
+
+  use(newMiddleware, opt = { global: false, core: false }) {
+    this.onion.use(newMiddleware, opt);
+    return this;
+  }
+
+  static requestUse(handler) {
+    if (typeof handler !== 'function') throw new TypeError('Interceptor must be function!');
+    requestInterceptors.push(handler);
+  }
+
+  static responseUse(handler) {
+    if (typeof handler !== 'function') throw new TypeError('Interceptor must be function!');
+    responseInterceptors.push(handler);
+  }
+
+  // 执行请求前拦截器
+  static dealRequestInterceptors(ctx) {
+    const reducer = (p1, p2) =>
+      p1.then((ret = {}) => {
+        ctx.req.url = ret.url || ctx.req.url;
+        ctx.req.options = ret.options || ctx.req.options;
+        return p2(ctx.req.url, ctx.req.options);
+      });
+    return requestInterceptors.reduce(reducer, Promise.resolve()).then((ret = {}) => {
+      ctx.req.url = ret.url || ctx.req.url;
+      ctx.req.options = ret.options || ctx.req.options;
+      return Promise.resolve();
+    });
+  }
+
+  request(url, options) {
+    const { onion } = this;
+    const obj = {
+      req: { url, options },
+      res: null,
+      cache: this.mapCache,
+      responseInterceptors,
+    };
+    if (typeof url !== 'string') {
+      throw new Error('url MUST be a string');
+    }
+
+    return new Promise((resolve, reject) => {
+      Core.dealRequestInterceptors(obj)
+        .then(() => onion.execute(obj))
+        .then(() => {
+          resolve(obj.res);
+        })
+        .catch(error => {
+          const { errorHandler } = obj.req.options;
+          if (errorHandler) {
+            try {
+              const data = errorHandler(error);
+              resolve(data);
+            } catch (e) {
+              reject(e);
+            }
+          } else {
+            reject(error);
+          }
+        });
+    });
+  }
+}
+
+export default Core;
+```
+
+### Onion 方法
+
+> 这个方法是比较核心的内容， 在onion 文件夹下包含index.js 和 compose.js 两个文件。
+
+### index.js
+
+其中就是存放中间件的地方，全局中间件，内核中间件，实例中间件
+
+```javaScript
+class Onion {
+  constructor(defaultMiddlewares) {
+    if (!Array.isArray(defaultMiddlewares)) throw new TypeError('Default middlewares must be an array!');
+
+    this.middlewares = [...defaultMiddlewares];
+  }
+
+  static globalMiddlewares = []; // 全局中间件
+  static defaultGlobalMiddlewaresLength = 0; // 内置全局中间件长度
+  static coreMiddlewares = []; // 内核中间件
+  static defaultCoreMiddlewaresLength = 0; // 内置内核中间件长度
+
+  use(newMiddleware, opts = { global: false, core: false }) {
+    let core = false;
+    let global = false;
+    if (typeof opts === 'number') {
+      if (process && process.env && process.env.NODE_ENV === 'development') {
+        console.warn(
+          'use() options should be object, number property would be deprecated in future，please update use() options to "{ core: true }".'
+        );
+      }
+      core = true;
+      global = false;
+    } else if (typeof opts === 'object' && opts) {
+      global = opts.global || false;
+      core = opts.core || false;
+    }
+
+    // 全局中间件
+    if (global) {
+      Onion.globalMiddlewares.splice(
+        Onion.globalMiddlewares.length - Onion.defaultGlobalMiddlewaresLength,
+        0,
+        newMiddleware
+      );
+      return;
+    }
+    // 内核中间件
+    if (core) {
+      Onion.coreMiddlewares.splice(Onion.coreMiddlewares.length - Onion.defaultCoreMiddlewaresLength, 0, newMiddleware);
+      return;
+    }
+
+    // 实例中间件
+    this.middlewares.push(newMiddleware);
+  }
+
+  execute(params = null) {
+    const fn = compose([...this.middlewares, ...Onion.globalMiddlewares, ...Onion.coreMiddlewares]);
+    return fn(params);
+  }
+}
+
+export default Onion;
+```
+
+之前在 core.js 文件中看到  `onion.execute(obj))`
+
+调用了实例化的 Onion 中的 execute 方法。
+
+```javaScript
+execute(params = null) {
+    const fn = compose([...this.middlewares, ...Onion.globalMiddlewares, ...Onion.coreMiddlewares]);
+    return fn(params);
+  }
+```
+该方法中的 execute 中使用了 compose 方法。这个方法中传入 middlewares, globalMiddlewares。 和 coreMiddlewares; compose方法执行后返回一个方法。
+并且这个方法再次调用，也返回一个方法
