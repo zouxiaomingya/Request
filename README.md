@@ -431,3 +431,36 @@ execute(params = null) {
 ```
 该方法中的 execute 中使用了 compose 方法。这个方法中传入 middlewares, globalMiddlewares。 和 coreMiddlewares; compose方法执行后返回一个方法。
 并且这个方法再次调用，也返回一个方法
+
+### compose 
+
+```javaScript
+export default function compose(middlewares) {
+  const middlewaresLen = middlewares.length;
+  for (let i = 0; i < middlewaresLen; i++) {
+    if (typeof middlewares[i] !== 'function') {
+      throw new TypeError('Middleware must be componsed of function');
+    }
+  }
+  return function wrapMiddlewares(params, next) {
+    let index = -1;
+    function dispatch(i) {
+      if (i <= index) {
+        return Promise.reject(new Error('next() should not be called multiple times in one middleware!'));
+      }
+      index = i;
+      const fn = middlewares[i] || next;
+      if (!fn) return Promise.resolve();
+      try {
+        return Promise.resolve(fn(params, () => dispatch(i + 1)));
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
+
+    return dispatch(0);
+  };
+}
+```
+1. 调用 compose 方法返回的事 wrapMiddlewares 方法
+2. 调用返回的方法返回了 dispatch 的执行。 可以看出这个 dispatc 方法调用返回了  Promise.resolve()
