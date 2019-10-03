@@ -464,3 +464,18 @@ export default function compose(middlewares) {
 ```
 1. 调用 compose 方法返回的事 wrapMiddlewares 方法
 2. 调用返回的方法返回了 dispatch 的执行。 可以看出这个 dispatc 方法调用返回了  Promise.resolve()
+
+通过链式调用的方法来发送请求，执行中间件，拦截器。
+
+那么这个请求这里就在于
+
+```javaScript
+// core.js 文件中
+import fetchMiddleware from './middleware/fetch';
+
+const coreMiddlewares = [fetchMiddleware];
+
+// 这个就是 onion 的内核中间件
+//  static coreMiddlewares = [];
+ 
+```
